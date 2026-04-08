@@ -1,0 +1,14 @@
+test_cases:
+  - id: basic_test
+    description: "A basic test"
+    input: "hello"
+    checks:
+      - type: json_parseable
+    tags: [basic]
+  - id: another_test
+    description: "Another test"
+    input: "world"
+    checks:
+      - type: contains
+        substring: "test"
+    tags: [content]

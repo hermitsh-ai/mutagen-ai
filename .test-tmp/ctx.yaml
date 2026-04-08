@@ -1,0 +1,8 @@
+test_cases:
+  - id: stateful_test
+    input: "add butter"
+    context:
+      existing_tasks:
+        - title: "Buy milk"
+    checks:
+      - type: json_parseable

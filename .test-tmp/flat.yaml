@@ -1,0 +1,4 @@
+- id: flat_test
+  input: "test input"
+  checks:
+    - type: json_parseable

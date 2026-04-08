@@ -264,11 +264,12 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
   prompt: string;
   tests: TestCase[];
   config: ProviderConfig;
+  runs: number;
 }> {
   let providerConfig: ProviderConfig | null = null;
   let promptFile: string | undefined;
   let testCasesFile: string | undefined;
-  let runs: number | undefined;
+  let runs: number = 1; // default
 
   // Load from config file if provided
   if (flags["config"]) {
@@ -276,7 +277,7 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
     providerConfig = cfg.provider;
     promptFile = cfg.promptFile;
     testCasesFile = cfg.testCasesFile;
-    runs = cfg.runs;
+    if (cfg.runs) runs = cfg.runs; // config file sets default
   }
 
   // CLI flags override config file
@@ -284,7 +285,7 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
   if (cliConfig) providerConfig = cliConfig;
   if (flags["prompt"]) promptFile = flags["prompt"] as string;
   if (flags["yaml"]) testCasesFile = flags["yaml"] as string;
-  if (flags["runs"]) runs = parseInt(flags["runs"] as string, 10);
+  if (flags["runs"]) runs = parseInt(flags["runs"] as string, 10); // CLI flag overrides config
 
   // Validate
   if (!providerConfig) {
@@ -303,7 +304,7 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
   const prompt = loadPrompt(promptFile);
   const tests = loadTestCasesFromYaml(testCasesFile);
 
-  return { prompt, tests, config: providerConfig };
+  return { prompt, tests, config: providerConfig, runs };
 }
 
 async function cmdRun(flags: Record<string, string | boolean>): Promise<void> {
@@ -321,7 +322,12 @@ async function cmdRun(flags: Record<string, string | boolean>): Promise<void> {
     }
     if (testCasesFile) tests = loadTestCasesFromYaml(testCasesFile);
 
-    const runs = flags["runs"] ? parseInt(flags["runs"] as string, 10) : 1;
+    let runs = 1;
+    if (flags["config"]) {
+      const cfg = loadConfig(flags["config"] as string);
+      if (cfg.runs) runs = cfg.runs;
+    }
+    if (flags["runs"]) runs = parseInt(flags["runs"] as string, 10);
     const calls = tests.length * runs;
     console.log(`\nDry-run estimate:`);
     console.log(`  Tests: ${tests.length}`);
@@ -330,13 +336,13 @@ async function cmdRun(flags: Record<string, string | boolean>): Promise<void> {
     return;
   }
 
-  const { prompt, tests, config } = await loadEverything(flags);
+  const { prompt, tests, config, runs: configRuns } = await loadEverything(flags);
 
   console.error(`Prompt: ${(flags["prompt"] ?? flags["config"])} (${prompt.length} chars)`);
   console.error(`Provider: ${config.provider} / ${config.model}`);
   console.error(`Temperature: ${config.temperature ?? "default"}`);
 
-  const runs = flags["runs"] ? parseInt(flags["runs"] as string, 10) : 1;
+  const runs = configRuns;
   const tags = flags["tags"] ? (flags["tags"] as string).split(",") : undefined;
 
   const suite = await runTests(prompt, tests, config, {
@@ -376,14 +382,14 @@ async function cmdBaseline(flags: Record<string, string | boolean>): Promise<voi
     process.exit(1);
   }
 
-  const { prompt, tests, config } = await loadEverything(flags);
+  const { prompt, tests, config, runs: configRuns } = await loadEverything(flags);
 
   // Save the prompt version
   const promptPath = savePrompt(prompt, saveDir);
   console.error(`Prompt saved: ${promptPath}`);
   console.error(`Provider: ${config.provider} / ${config.model}`);
 
-  const runs = flags["runs"] ? parseInt(flags["runs"] as string, 10) : 1;
+  const runs = configRuns;
   const tags = flags["tags"] ? (flags["tags"] as string).split(",") : undefined;
 
   const suite = await runTests(prompt, tests, config, {
