@@ -1,0 +1,57 @@
+{
+  "name": "mutagen-ai",
+  "version": "0.1.0",
+  "description": "Test-driven prompt evolution toolkit. Build test harnesses, diagnose failure patterns, and evolve AI prompts through targeted mutations.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "mutagen": "dist/bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "keywords": [
+    "prompt-engineering",
+    "prompt-testing",
+    "prompt-optimization",
+    "llm",
+    "ai",
+    "test-harness",
+    "prompt-evolution",
+    "openai",
+    "anthropic",
+    "gemini",
+    "mutation-testing"
+  ],
+  "author": "hermitsh <hello@hermitsh.ai>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hermitsh-ai/mutagen-ai"
+  },
+  "homepage": "https://github.com/hermitsh-ai/mutagen-ai",
+  "bugs": {
+    "url": "https://github.com/hermitsh-ai/mutagen-ai/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "templates",
+    "PLAYBOOK.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

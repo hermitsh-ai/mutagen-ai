@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.js.map
+.DS_Store
+*.tgz
+
+# API keys
+.env
+.env.*
+
+# Engagement artifacts (local only)
+*/results/
+*/prompts/
