@@ -47,6 +47,12 @@ export {
 } from "./providers.js";
 
 export {
+  runSemanticJudge,
+  type SemanticJudgeCheck,
+  type SemanticJudgeResult,
+} from "./semantic-judge.js";
+
+export {
   runCheck,
   validateJsonParseable,
   validateJsonFields,

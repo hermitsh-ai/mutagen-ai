@@ -276,16 +276,22 @@ export function validateItemCount(
 export function validateContains(
   response: string,
   substring: string,
+  ignoreCase = true,
 ): ValidatorResult {
-  if (response.includes(substring)) return [true, `Contains '${substring}'`];
+  const hay = ignoreCase ? response.toLowerCase() : response;
+  const needle = ignoreCase ? substring.toLowerCase() : substring;
+  if (hay.includes(needle)) return [true, `Contains '${substring}'`];
   return [false, `Does not contain '${substring}'`];
 }
 
 export function validateNotContains(
   response: string,
   substring: string,
+  ignoreCase = true,
 ): ValidatorResult {
-  if (!response.includes(substring)) return [true, `Does not contain '${substring}'`];
+  const hay = ignoreCase ? response.toLowerCase() : response;
+  const needle = ignoreCase ? substring.toLowerCase() : substring;
+  if (!hay.includes(needle)) return [true, `Does not contain '${substring}'`];
   return [false, `Contains unwanted '${substring}'`];
 }
 
@@ -373,9 +379,17 @@ export function runCheck(response: string, check: Check): ValidatorResult {
         (check["max_items"] as number) ?? 999,
       );
     case "contains":
-      return validateContains(response, check["substring"] as string);
+      return validateContains(
+        response,
+        check["substring"] as string,
+        (check["ignore_case"] as boolean | undefined) ?? true,
+      );
     case "not_contains":
-      return validateNotContains(response, check["substring"] as string);
+      return validateNotContains(
+        response,
+        check["substring"] as string,
+        (check["ignore_case"] as boolean | undefined) ?? true,
+      );
     case "no_duplication":
       return validateNoDuplication(
         response,

@@ -81,7 +81,11 @@ Run Options:
   --verbose              Show response text for failures
   --table                Print results as markdown table
   --delay <ms>           Delay between tests in ms (default: 500)
-  --retries <n>          Retries on transient API failures (default: 1)
+  --retries <n>          Retries on transient API failures (default: 2)
+  --timeout-ms <n>       API timeout per call in ms (default: 45000)
+  --judge-provider <p>   Semantic judge provider (optional)
+  --judge-model <m>      Semantic judge model (optional)
+  --judge-api-key-env <v> Semantic judge API key env var (optional)
   --dry-run              Estimate API calls without running
 
 Init Options:
@@ -260,6 +264,27 @@ function buildProviderConfig(flags: Record<string, string | boolean>): ProviderC
   };
 }
 
+function buildJudgeConfig(flags: Record<string, string | boolean>): ProviderConfig | undefined {
+  const provider = flags["judge-provider"] as string | undefined;
+  const model = flags["judge-model"] as string | undefined;
+  if (!provider || !model) return undefined;
+
+  const apiKeyMap: Record<string, string> = {
+    openai: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    gemini: "GEMINI_API_KEY",
+    google: "GEMINI_API_KEY",
+  };
+
+  return {
+    provider,
+    model,
+    apiKeyEnv: (flags["judge-api-key-env"] as string) ?? apiKeyMap[provider] ?? "API_KEY",
+    temperature: 0,
+    maxTokens: 512,
+  };
+}
+
 async function loadEverything(flags: Record<string, string | boolean>): Promise<{
   prompt: string;
   tests: TestCase[];
@@ -351,7 +376,9 @@ async function cmdRun(flags: Record<string, string | boolean>): Promise<void> {
     testId: flags["test"] as string | undefined,
     verbose: flags["verbose"] === true,
     delayBetween: flags["delay"] ? parseInt(flags["delay"] as string, 10) : 500,
-    retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 1,
+    retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
+    apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
+    judgeConfig: buildJudgeConfig(flags),
   });
 
   console.log(formatSummary(suite));
@@ -396,7 +423,9 @@ async function cmdBaseline(flags: Record<string, string | boolean>): Promise<voi
     numRuns: runs,
     tags,
     verbose: flags["verbose"] === true,
-    retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 1,
+    retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
+    apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
+    judgeConfig: buildJudgeConfig(flags),
   });
 
   console.log(formatSummary(suite));
@@ -470,12 +499,22 @@ async function cmdCompare(flags: Record<string, string | boolean>): Promise<void
   console.error(`${"=".repeat(60)}`);
   console.error(`Running v${v1}...`);
   console.error(`${"=".repeat(60)}`);
-  const suite1 = await runTests(prompt1, tests, providerConfig, { numRuns: runs });
+  const suite1 = await runTests(prompt1, tests, providerConfig, {
+    numRuns: runs,
+    retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
+    apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
+    judgeConfig: buildJudgeConfig(flags),
+  });
 
   console.error(`\n${"=".repeat(60)}`);
   console.error(`Running v${v2}...`);
   console.error(`${"=".repeat(60)}`);
-  const suite2 = await runTests(prompt2, tests, providerConfig, { numRuns: runs });
+  const suite2 = await runTests(prompt2, tests, providerConfig, {
+    numRuns: runs,
+    retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
+    apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
+    judgeConfig: buildJudgeConfig(flags),
+  });
 
   // Comparison table
   console.log(`\n${"=".repeat(70)}`);

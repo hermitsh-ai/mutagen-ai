@@ -63,9 +63,24 @@ console.log(`${results.passed}/${results.total} passed`);
 
 ## Supported Providers
 
-- **OpenAI** — GPT-4o, GPT-4, GPT-3.5 (and compatible APIs)
+Native provider adapters currently implemented:
+
+- **OpenAI** — GPT-4o, GPT-4, GPT-3.5
 - **Anthropic** — Claude Opus, Sonnet, Haiku
-- **Google** — Gemini 2.5 Flash, Gemini Pro
+- **Google** — Gemini 2.5 Flash, Gemini Pro (`provider: gemini` or `provider: google`)
+
+### OpenAI-compatible endpoints
+
+mutagen-ai can also target OpenAI-compatible APIs by using the OpenAI provider with a custom endpoint in `mutagen.yaml`:
+
+```yaml
+provider: openai
+model: your-model-name
+api_key_env: OPENAI_API_KEY
+endpoint: https://your-openai-compatible-endpoint/v1/chat/completions
+```
+
+Compatibility depends on the endpoint matching OpenAI Chat Completions semantics.
 
 All providers use raw HTTP calls — no SDKs. This is intentional: SDKs and frameworks inject context that pollutes test results. The harness replicates exactly what your production system sends.
 
@@ -110,7 +125,9 @@ test_cases:
 
 **Structural:** `json_parseable`, `json_fields`, `json_field_type`, `json_field_value`, `json_array_length`, `max_nesting_depth`, `item_count`, `max_length`
 
-**Content:** `regex_match`, `regex_absent`, `contains`, `not_contains`, `no_banned_words`, `field_word_count`, `no_duplication`
+**Content:** `regex_match`, `regex_absent`, `contains`, `not_contains`, `no_banned_words`, `field_word_count`, `no_duplication`, `semantic_judge`
+
+`contains` / `not_contains` are case-insensitive by default (`ignore_case: false` to force exact case).
 
 ## The Mutation Taxonomy
 
