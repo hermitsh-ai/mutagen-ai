@@ -11,3 +11,9 @@ dist/
 # Engagement artifacts (local only)
 */results/
 */prompts/
+
+# Test scratch files
+.test-tmp/
+
+# Plan (working doc, not shipped)
+PLAN.md

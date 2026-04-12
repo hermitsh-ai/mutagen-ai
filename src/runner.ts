@@ -54,6 +54,8 @@ export interface RunOptions {
   delayBetween?: number;
   retries?: number;
   verbose?: boolean;
+  quiet?: boolean;
+  json?: boolean;
   apiTimeoutMs?: number;
   judgeConfig?: ProviderConfig;
   buildUserPrompt?: (input: UserInput, context?: Record<string, unknown>) => UserInput;
@@ -235,8 +237,14 @@ export async function runTests(
   if (cases.length === 0) throw new Error("No test cases to run after filtering.");
 
   const numRuns = opts.numRuns ?? 1;
-  const runLabel = numRuns > 1 ? ` x${numRuns} runs` : "";
-  process.stderr.write(`\nRunning ${cases.length} tests${runLabel}...\n\n`);
+  const quiet = opts.quiet === true;
+  const jsonMode = opts.json === true;
+  const silent = quiet || jsonMode;
+
+  if (!silent) {
+    const runLabel = numRuns > 1 ? ` x${numRuns} runs` : "";
+    process.stderr.write(`\nRunning ${cases.length} tests${runLabel}...\n\n`);
+  }
 
   const results: TestResult[] = [];
   const delay = opts.delayBetween ?? 500;
@@ -245,14 +253,15 @@ export async function runTests(
     if (i > 0) await sleep(delay);
 
     const tc = cases[i];
-    const label = `  [${i + 1}/${cases.length}] ${tc.id}`;
-    const runsLabel = numRuns > 1 ? ` (${numRuns} runs)` : "";
-    process.stderr.write(`${label}${runsLabel}... `);
-
     const result = await runSingleTest(tc, systemPrompt, config, opts);
-    const status = result.passed ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
-    const rate = numRuns > 1 ? ` (${result.passRate})` : "";
-    process.stderr.write(`${status}${rate}\n`);
+
+    if (!silent || (!result.passed && quiet)) {
+      const label = `  [${i + 1}/${cases.length}] ${tc.id}`;
+      const runsLabel = numRuns > 1 ? ` (${numRuns} runs)` : "";
+      const status = result.passed ? "\x1b[32mPASS\x1b[0m" : "\x1b[31mFAIL\x1b[0m";
+      const rate = numRuns > 1 ? ` (${result.passRate})` : "";
+      process.stderr.write(`${label}${runsLabel}... ${status}${rate}\n`);
+    }
 
     if (!result.passed && opts.verbose) {
       for (const run of result.runs) {

@@ -60,6 +60,14 @@ export function loadTestCasesFromYaml(yamlPath: string): TestCase[] {
 // Engagement Config Loader
 // ---------------------------------------------------------------------------
 
+interface JudgeConfig {
+  provider: string;
+  model: string;
+  api_key_env?: string;
+  temperature?: number;
+  max_tokens?: number;
+}
+
 interface MutagenConfig {
   provider: string;
   model: string;
@@ -70,6 +78,7 @@ interface MutagenConfig {
   prompt_file?: string;
   test_cases?: string;
   runs?: number;
+  judge?: JudgeConfig;
 }
 
 export function loadConfig(configPath: string): {
@@ -77,6 +86,7 @@ export function loadConfig(configPath: string): {
   promptFile?: string;
   testCasesFile?: string;
   runs?: number;
+  judgeProvider?: ProviderConfig;
 } {
   const absPath = resolve(configPath);
   if (!existsSync(absPath)) {
@@ -87,6 +97,24 @@ export function loadConfig(configPath: string): {
   const config = YAML.parse(raw) as MutagenConfig;
 
   const baseDir = dirname(absPath);
+
+  const apiKeyMap: Record<string, string> = {
+    openai: "OPENAI_API_KEY",
+    anthropic: "ANTHROPIC_API_KEY",
+    gemini: "GEMINI_API_KEY",
+    google: "GEMINI_API_KEY",
+  };
+
+  let judgeProvider: ProviderConfig | undefined;
+  if (config.judge) {
+    judgeProvider = {
+      provider: config.judge.provider,
+      model: config.judge.model,
+      apiKeyEnv: config.judge.api_key_env ?? apiKeyMap[config.judge.provider] ?? "API_KEY",
+      temperature: config.judge.temperature ?? 0,
+      maxTokens: config.judge.max_tokens ?? 512,
+    };
+  }
 
   return {
     provider: {
@@ -100,6 +128,7 @@ export function loadConfig(configPath: string): {
     promptFile: config.prompt_file ? resolve(baseDir, config.prompt_file) : undefined,
     testCasesFile: config.test_cases ? resolve(baseDir, config.test_cases) : undefined,
     runs: config.runs,
+    judgeProvider,
   };
 }
 

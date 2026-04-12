@@ -6,6 +6,21 @@ Read `docs/prompt-structures.md` before starting if you haven't already. Refer t
 
 ---
 
+## Quick Reference
+
+```bash
+mutagen init --name my-app --provider openai --model gpt-4o
+mutagen run --config mutagen.yaml
+mutagen run --config mutagen.yaml --runs 3 --verbose
+mutagen run --config mutagen.yaml --json          # structured JSON output for agents/CI
+mutagen run --config mutagen.yaml --quiet          # only show failures
+mutagen baseline --config mutagen.yaml --save-to .
+mutagen compare 1 2 --config mutagen.yaml --save-to .
+mutagen versions --save-to .
+```
+
+---
+
 ## Before You Start: Mental Model
 
 You are running a test-driven optimization loop. The prompt is the code. The test harness is the compiler. The user is the product owner. Your job is to:
@@ -58,57 +73,53 @@ If the user gives you access to their codebase:
 
 2. **Find the response parser.** How does the app consume the AI's output? JSON.parse? Regex extraction? Direct display? This tells you what format constraints are hard requirements.
 
-3. **Find the API call.** What model, what temperature, what parameters? You need to replicate this exactly in your test harness.
+3. **Find the API call.** What model, what temperature, what parameters? You need to replicate this exactly in your test configuration.
 
 4. **Find the UI/consumer.** What does the end user see? This helps you write content-quality validators, not just structural ones.
 
 ### Setting Up the Engagement Directory
 
-Before Phase 2, create a dedicated engagement directory using `--save-to`. This centralizes all artifacts in one place:
+Scaffold the engagement with the CLI:
 
 ```bash
-python test_harness.py --save-to ./engagement_myapp
+mutagen init --name my-app --provider openai --model gpt-4o
 ```
 
-Copy the engagement template from `templates/engagement_template.md` into this directory. You'll fill it in as you go, not retrospectively. It captures context, baseline results, iterations, and reviews in one place.
+This creates:
+```
+my-app/
+  mutagen.yaml       — configuration (provider, model, paths)
+  prompt.txt         — paste the production prompt here
+  tests.yaml         — define test cases here
+  engagement.md      — iteration tracking
+  failure_log.md     — failure pattern log
+  prompts/           — auto-versioned prompts (v1.txt, v2.txt, ...)
+  results/           — saved test results (JSON)
+```
+
+Then:
+1. Paste the full production prompt into `prompt.txt`
+2. Set the API key: `export OPENAI_API_KEY=sk-...`
+3. Edit `mutagen.yaml` to match production parameters (temperature, max_tokens)
 
 ### Phase 1 Outputs
 
 Before moving to Phase 2, you should have:
-- [ ] Set up engagement directory with `--save-to`
-- [ ] Copied engagement template into the directory
-- [ ] The full prompt text as the production system sends it
-- [ ] The target model and API parameters
-- [ ] An API key set as an environment variable
-- [ ] A list of known failure modes from the user
-- [ ] Understanding of the response format requirements
-- [ ] Understanding of how the app consumes responses
+- [ ] Scaffolded engagement directory with `mutagen init`
+- [ ] Pasted the full prompt text into `prompt.txt`
+- [ ] Configured `mutagen.yaml` with the target model and API parameters
+- [ ] Set the API key as an environment variable
+- [ ] Collected known failure modes from the user
+- [ ] Understood the response format requirements
+- [ ] Understood how the app consumes responses
 
 ---
 
 ## Phase 2: Baseline Testing
 
-### Step 1: Build the Test Harness
+### Step 1: Define Test Cases
 
-Copy `templates/test_harness.py` into your working directory. Adapt it:
-
-1. Set `API_CONFIG` for the user's provider, model, and parameters
-2. Implement `load_prompt()` to assemble the prompt exactly as the production system does
-3. Verify the API call works with a single manual test before running the suite
-
-Test cases can be defined in **YAML** (via `--yaml path/to/tests.yaml`) or **Python**:
-- **YAML is preferred** for declarative test definitions and static inputs
-- **Python is better** for custom validators and complex setup logic
-
-For apps with dynamic user prompts that include app state (existing tasks, user data, context), use `build_user_prompt()` to simulate that state in your test inputs.
-
-**Critical:** The test harness must make the same API call the production system makes. Same model, same temperature, same system/user message structure. No extra context. If the production system uses `temperature: 1.0`, your tests use `temperature: 1.0`. If the production system sends the prompt as `system_instruction`, your tests do the same.
-
-**Why raw API calls?** Sub-agents and orchestration frameworks inject their own system context (persona, workspace files, memory, behavioral rules). This pollutes the test — the AI isn't responding to just the prompt being tested, it's responding to the prompt *plus* framework scaffolding. Your test harness must be clean.
-
-### Step 2: Define Test Cases
-
-Start with 8-12 test cases. You will expand as you discover failure modes. Aim for coverage across these categories:
+Define tests declaratively in `tests.yaml`. Start with 8-12 test cases covering these categories:
 
 | Category | Starting Count | Purpose |
 |----------|---------------|---------|
@@ -117,67 +128,123 @@ Start with 8-12 test cases. You will expand as you discover failure modes. Aim f
 | Rule-specific | 1 per known failure | Directly test reported problems |
 | Adversarial | 1-2 | Injection attempts, format breakers |
 
-As failures emerge, add targeted regression tests. The SHrimp engagement started with 10 tests and expanded to 30 across two suites (core behavior + nesting-specific) as new failure patterns surfaced.
-
-**YAML test structure** now supports a `context` field for simulating app state. This is critical for apps where the AI's behavior depends on what's already in the system (existing tasks, user data, preferences). Use it to replicate realistic state:
+**YAML test structure:**
 
 ```yaml
-test_case:
-  name: "Adding task to populated list"
-  context:
-    existing_tasks:
-      - id: 1
-        title: "Review proposal"
-        status: "pending"
-  input: "Also need to call marketing"
-  expected:
-    - new_task_created: true
+test_cases:
+  - id: basic_json_output
+    description: "Response is valid JSON with required fields"
+    input: "Create a task: buy groceries"
+    checks:
+      - type: json_parseable
+      - type: json_fields
+        fields: ["title", "priority"]
+      - type: json_field_value
+        field: priority
+        allowed: ["high", "medium", "low"]
+    tags: [basic, json]
+
+  - id: no_meta_tasks
+    description: "No planning/organizing meta-tasks"
+    input: "I need to prepare for my trip next week"
+    checks:
+      - type: json_parseable
+      - type: no_banned_words
+        words: ["Organize", "Plan", "Review", "Evaluate"]
+        field: title
+    tags: [content, rules]
 ```
 
-For each test case, write a validator function. Validators should check:
-- **Structure:** Does it parse? Are required fields present? Are types correct?
-- **Content:** Is the response accurate and appropriate?
-- **App compatibility:** Will the consuming application accept this output?
-- **Nesting/depth:** Does the structure stay within what the app's UI can render?
+For apps with dynamic user prompts that include app state, use the `context` field:
 
-Use the validator functions from `templates/test_harness.py` as building blocks. Write custom validators when the template ones aren't sufficient.
+```yaml
+  - id: task_with_existing_data
+    description: "Adding task to populated list"
+    input: "Also need to call marketing"
+    context:
+      existing_tasks:
+        - id: 1
+          title: "Review proposal"
+          status: "pending"
+    checks:
+      - type: json_parseable
+      - type: item_count
+        min_items: 1
+    tags: [stateful]
+```
 
-### Step 3: Run the Baseline
+For subjective quality criteria, use the semantic judge:
 
-Run the full test suite against the **unmodified** prompt. Record results using `--save-to` to persist them in the engagement directory:
+```yaml
+  - id: tone_check
+    description: "Response is professional and concise"
+    input: "Summarize the Q3 results"
+    checks:
+      - type: semantic_judge
+        criteria: "Response should be professional in tone, concise, and free of casual language"
+        pass_threshold: 0.7
+    tags: [quality]
+```
+
+**Available check types:**
+
+- **Structural:** `json_parseable`, `json_fields`, `json_field_type`, `json_field_value`, `json_array_length`, `max_nesting_depth`, `item_count`, `max_length`
+- **Content:** `regex_match`, `regex_absent`, `contains`, `not_contains`, `no_banned_words`, `field_word_count`, `no_duplication`, `semantic_judge`
+
+### Step 2: Configure the Semantic Judge (Optional)
+
+If your test suite uses `semantic_judge` checks, add a judge section to `mutagen.yaml`:
+
+```yaml
+provider: openai
+model: gpt-4o
+api_key_env: OPENAI_API_KEY
+temperature: 0.7
+max_tokens: 4096
+prompt_file: prompt.txt
+test_cases: tests.yaml
+runs: 3
+
+judge:
+  provider: openai
+  model: gpt-4o-mini
+  api_key_env: OPENAI_API_KEY
+```
+
+The judge is a second LLM that evaluates the main model's output against your criteria. Use a cheaper/faster model for the judge — it only needs to score, not generate.
+
+### Step 3: Estimate Costs
+
+Before running, preview the API call count:
 
 ```bash
-python test_harness.py --save-to ./engagement_myapp
+mutagen run --config mutagen.yaml --dry-run
 ```
+
+### Step 4: Run the Baseline
+
+Run the full test suite against the **unmodified** prompt and save as baseline:
+
+```bash
+mutagen baseline --config mutagen.yaml --save-to .
+```
+
+This does three things:
+1. Saves the prompt as `prompts/v1.txt`
+2. Runs all tests
+3. Saves results to `results/`
 
 This is your reference point. Every future change is measured against this baseline.
 
-Before running the full suite, use `--dry-run` to preview API costs and confirm the harness is set up correctly:
-
-```bash
-python test_harness.py --dry-run
-```
-
-**Prompt versioning:** After baseline, the prompt is automatically saved as `v1.txt` in the engagement directory. Each mutation creates a new version (`v2.txt`, `v3.txt`, etc.) for easy rollback and comparison.
-
-**Handling nondeterminism:** At temperature > 0, the same input can produce different outputs on each call. This is especially pronounced at temperature 0.7+ where the SHrimp engagement saw tests pass/fail randomly across runs.
-
-Strategy for nondeterminism:
-1. Run each test **3 times minimum** at temperatures above 0.5
-2. A test must pass **all runs** to be considered passing. A flaky test is a failing test.
-3. Use the `--runs N` flag in the test harness to automate multi-run testing
-4. When reporting results, report the worst-case result for each test
-5. If a test passes 2/3 times, the prompt isn't robust enough — the rule it tests needs to be stronger
-
-Record the multi-run results in your failure log. "Passes 2/3" is useful diagnostic information — it tells you the rule exists but lacks sufficient force.
+**Handling nondeterminism:** At temperature > 0, the same input can produce different outputs. Set `runs: 3` (or higher) in `mutagen.yaml` for temperatures above 0.5. A test must pass **all runs** to be considered passing. A flaky test is a failing test.
 
 ### Phase 2 Outputs
 
-- [ ] Working test harness making real API calls
-- [ ] 8-12 test cases with validators (YAML or Python)
-- [ ] Test fixtures or context fields set up for stateful inputs
-- [ ] Baseline results recorded with `--save-to` (with multi-run data if temperature > 0.5)
+- [ ] 8-12 test cases defined in `tests.yaml`
+- [ ] Context fields set up for stateful inputs (if applicable)
+- [ ] Semantic judge configured (if using `semantic_judge` checks)
 - [ ] API costs estimated via `--dry-run`
+- [ ] Baseline results saved (multi-run if temperature > 0.5)
 - [ ] List of failures to investigate, grouped by pattern
 
 ---
@@ -186,32 +253,54 @@ Record the multi-run results in your failure log. "Passes 2/3" is useful diagnos
 
 ### A/B Testing Specific Versions
 
-To compare two prompt versions side-by-side (for example, mutation 3 vs mutation 5):
+To compare two prompt versions side-by-side:
 
 ```bash
-python test_harness.py --prompt-file ./engagement_myapp/prompts/v3.txt
+mutagen compare 1 3 --config mutagen.yaml --save-to .
 ```
 
-This runs the full suite against a specific version without changing your working prompt. Useful for debugging regressions or testing fallback approaches.
+This runs the full suite against both versions and shows a comparison table with FIXED / REGRESSION / STILL FAILING labels.
 
-### The Diagnosis -> Mutate -> Test Loop
+To list all saved versions:
+
+```bash
+mutagen versions --save-to .
+```
+
+### The Diagnosis → Mutate → Test Loop
 
 For each failure pattern:
 
-**1. Diagnose.** Read the failing test's actual response carefully. Compare it to what was expected. Ask:
+**1. Diagnose.** Run the failing test with `--verbose` to see the actual response:
+
+```bash
+mutagen run --config mutagen.yaml --test failing_test_id --verbose
+```
+
+Read the response carefully. Compare it to what was expected. Ask:
 
 - Which specific words or section of the prompt caused this behavior?
 - Is the problem what the prompt says, or what it *doesn't* say?
 - Is there a cross-section conflict (two parts of the prompt contradicting each other)?
 - Is a schema example teaching the wrong pattern?
 
-Log the pattern in `templates/failure_log.md` with the actual response excerpts.
+Log the pattern in `failure_log.md` with the actual response excerpts.
 
-**2. Mutate.** Make a targeted edit. One mutation per failure pattern. See the Mutation Strategy Guide below for detailed tactics.
+**2. Mutate.** Make a targeted edit to `prompt.txt`. One mutation per failure pattern. See the Mutation Strategy Guide below for detailed tactics.
 
 **3. Test.** Run the **full suite** after every mutation. Not just the test you were targeting — the full suite. Regressions must be caught immediately.
 
-**4. Record.** Log what changed, why, and the before/after test results.
+```bash
+mutagen run --config mutagen.yaml --verbose
+```
+
+**4. Save.** When a mutation improves things, save it as a new version:
+
+```bash
+mutagen baseline --config mutagen.yaml --save-to .
+```
+
+This auto-increments the version (v2.txt, v3.txt, etc.) and saves the results.
 
 ### Mutation Strategy Guide
 
@@ -318,7 +407,7 @@ This happens. A fix for one case can break another because:
 - A more specific instruction overrides a more general one
 
 When you hit a regression:
-1. Revert the mutation
+1. Revert the mutation (you saved versions, so roll back to the previous `prompts/v{N}.txt`)
 2. Understand *why* it caused the regression
 3. Try an alternative approach that fixes the target without triggering the conflict
 4. If no single mutation works, you may need to fix both issues in a single coordinated mutation
@@ -346,22 +435,15 @@ Don't iterate forever. If you're on iteration 5+ without meaningful progress, pr
 
 ## Phase 4: Human Review
 
-### Engagement Template
-
-The engagement template (`templates/engagement_template.md`) should be filled in as you go through the phases, not retrospectively. It captures:
-- **Context:** Problem statement, known failure modes, test strategy
-- **Baseline:** Initial test results and failure patterns
-- **Iterations:** Each mutation with before/after results
-- **Reviews:** User feedback and decisions made
-- **Final state:** Convergence details and sign-off
-
-This becomes the complete record of the engagement and helps future sessions understand what was tried.
-
 ### What to Present
 
 1. **The refined prompt text.** If the prompt is sectioned, present each section. If it's monolithic, present the whole thing. Either way, include a diff from the original.
 
-2. **Test results.** Show the before/after comparison. Make it easy to see what improved. Include multi-run data if applicable.
+2. **Test results.** Show the comparison between baseline and current:
+
+```bash
+mutagen compare 1 <latest> --config mutagen.yaml --save-to .
+```
 
 3. **What changed and why.** For each mutation, one sentence on what was changed and one on why. Don't over-explain — the user can ask for details.
 
@@ -369,15 +451,15 @@ This becomes the complete record of the engagement and helps future sessions und
 
 5. **Open questions.** If there are cases where you weren't sure what "good" looks like, ask.
 
-6. **The engagement template.** Show the user the filled-in template; it serves as the full audit trail.
+6. **The engagement template.** Show the user `engagement.md` — it serves as the full audit trail.
 
 ### Incorporating Feedback
 
 The user's feedback will typically be:
-- "This looks good, ship it" -> Move to Phase 5 / Convergence
-- "This case still isn't right" -> Add or refine a test case, return to Phase 3
-- "I don't like the tone / style / approach" -> Content quality issue. May need custom validators or more nuanced prompt language.
-- "This works but I also want it to handle X" -> Scope expansion. Add new test cases and iterate.
+- "This looks good, ship it" → Move to Phase 5 / Convergence
+- "This case still isn't right" → Add or refine a test case, return to Phase 3
+- "I don't like the tone / style / approach" → Content quality issue. Consider adding `semantic_judge` checks with criteria that encode the desired tone.
+- "This works but I also want it to handle X" → Scope expansion. Add new test cases and iterate.
 
 ---
 
@@ -395,12 +477,11 @@ Present the **complete final prompt text** to the user. They will copy it into t
 If the prompt is sectioned, present each section separately with clear labels so the user knows which section goes where.
 
 Include:
-- **The final prompt text** (complete, ready to copy) — located in the engagement directory as `prompts/v{N}.txt`
+- **The final prompt text** (complete, ready to copy) — located in `prompts/v{N}.txt`
 - A summary of all changes from the original
-- **The test suite** (portable YAML tests + harness) so the user can re-run it if they make future edits
+- **The test suite** (portable YAML tests) so the user can re-run if they make future edits
 - **The failure log** so future sessions can understand what was tried
-- **The engagement template** (filled in as a complete record of decisions and iterations)
-- Optional: **Cross-model testing results** if you tested the prompt against multiple providers using `--models` to verify robustness
+- **The engagement template** (`engagement.md` as a complete record of decisions and iterations)
 
 ---
 
@@ -466,7 +547,7 @@ If a test is failing, the instinct is sometimes to make the test less strict. Re
 When debugging content or structural failures, people look at the rules section first. But schema examples are often the real culprit — they teach by demonstration, and models mimic what they see. Always check the schema example when diagnosing structural issues.
 
 ### Not Saving Prompt Versions
-After 8 mutations you need to roll back to mutation 3. If you didn't save versions, you're reconstructing from memory. Use `--save-to` from the start of Phase 1. The harness automatically versions each mutation as `v1.txt`, `v2.txt`, etc., making rollback trivial. Without this, you lose the ability to pinpoint when a regression was introduced and why.
+After 8 mutations you need to roll back to mutation 3. If you didn't save versions, you're reconstructing from memory. Use `mutagen baseline --save-to .` after each successful mutation to auto-version. The `prompts/` directory keeps every version, making rollback trivial.
 
 ---
 
@@ -482,7 +563,7 @@ You can, but you shouldn't. A rewrite loses the signal of what was already worki
 Because "better" is undefined without tests. Any model can generate a plausible-sounding prompt. The question is whether it actually produces correct output for the specific inputs the user cares about. That requires testing, not generation.
 
 **"The tests pass but the output doesn't feel right."**
-This means your validators are incomplete. Work with the user to articulate what "right" looks like, then encode it as a validator. If it's genuinely subjective (tone, style), this may require iterating on prompt language beyond what automated tests can catch.
+This means your validators are incomplete. Consider adding `semantic_judge` checks with criteria that capture the subjective quality. Work with the user to articulate what "right" looks like, then encode it. If it's genuinely subjective (tone, style), this may require iterating on both prompt language and test criteria.
 
 ---
 
@@ -490,39 +571,36 @@ This means your validators are incomplete. Work with the user to articulate what
 
 ```
 Phase 1: Context Gathering
-  [ ] Obtained the full prompt text
-  [ ] Identified prompt structure (monolithic / sectioned / few-shot)
-  [ ] Determined target model and API parameters
-  [ ] Obtained API key and set as environment variable
-  [ ] Read codebase to understand response consumer
+  [ ] Scaffolded engagement with `mutagen init`
+  [ ] Pasted the full prompt text into prompt.txt
+  [ ] Configured mutagen.yaml (model, temperature, max_tokens)
+  [ ] Set API key as environment variable
+  [ ] Read codebase to understand response consumer (if available)
   [ ] Collected known failure modes from user
-  [ ] Set up engagement directory with --save-to
-  [ ] Copied engagement template into directory
 
 Phase 2: Baseline Testing
-  [ ] Built test harness with raw API calls
-  [ ] Verified API call matches production exactly
-  [ ] Defined test cases in YAML or Python (with fixtures if stateful)
-  [ ] Verified context/app state simulation where needed
-  [ ] Ran --dry-run to estimate API costs
-  [ ] Ran baseline with multiple runs (3+ at temp > 0.5)
-  [ ] Recorded baseline results with --save-to and multi-run data
+  [ ] Defined 8-12 test cases in tests.yaml
+  [ ] Set up context fields for stateful inputs (if needed)
+  [ ] Configured semantic judge (if using semantic_judge checks)
+  [ ] Ran `mutagen run --config mutagen.yaml --dry-run` to estimate costs
+  [ ] Ran `mutagen baseline --config mutagen.yaml --save-to .` (multi-run if temp > 0.5)
   [ ] Identified failure patterns, grouped by root cause
 
 Phase 3: Mutation & Iteration
   [ ] Diagnosed each failure pattern (root cause + responsible prompt section)
   [ ] Applied targeted mutations (smallest effective change)
-  [ ] Ran full test suite (multi-run) after each mutation
+  [ ] Ran full suite after each mutation: `mutagen run --config mutagen.yaml --verbose`
   [ ] Checked for regressions after each mutation
-  [ ] Used --prompt-file for A/B comparison where needed
-  [ ] Logged all changes in failure log with before/after
+  [ ] Used `mutagen compare` for A/B comparison where needed
+  [ ] Saved successful mutations: `mutagen baseline --save-to .`
+  [ ] Logged all changes in failure_log.md with before/after
   [ ] Expanded test suite as new patterns emerged
 
 Phase 4: Human Review
   [ ] Presented refined prompt with diff
-  [ ] Showed before/after test results (with multi-run data)
+  [ ] Showed comparison: `mutagen compare 1 <latest> --config mutagen.yaml --save-to .`
   [ ] Explained changes and trade-offs
-  [ ] Presented the engagement template as complete record
+  [ ] Presented engagement.md as complete record
   [ ] Incorporated user feedback
   [ ] Added any new test cases from feedback
 
@@ -530,8 +608,7 @@ Phase 5: Convergence
   [ ] All tests pass across multiple runs
   [ ] User approves output quality
   [ ] No regressions from baseline
-  [ ] Delivered final prompt text for user to copy (from prompts/v{N}.txt)
-  [ ] Delivered test suite (portable YAML + harness) for future use
-  [ ] Delivered failure log for future reference
-  [ ] Cross-model tested with --models (if multi-provider app)
+  [ ] Delivered final prompt text (from prompts/v{N}.txt)
+  [ ] Delivered test suite (tests.yaml) for future use
+  [ ] Delivered failure_log.md for future reference
 ```

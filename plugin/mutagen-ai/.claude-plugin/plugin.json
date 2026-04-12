@@ -1,0 +1,19 @@
+{
+  "name": "mutagen-ai",
+  "version": "0.2.0",
+  "description": "Test-driven prompt evolution toolkit. Test, diagnose, mutate, and prove AI system prompts through automated testing with multi-provider support.",
+  "author": {
+    "name": "hermitsh"
+  },
+  "homepage": "https://github.com/hermitsh/mutagen-ai",
+  "repository": "https://github.com/hermitsh/mutagen-ai",
+  "license": "MIT",
+  "keywords": [
+    "prompt-engineering",
+    "prompt-testing",
+    "llm",
+    "ai",
+    "test-harness",
+    "mutation-testing"
+  ]
+}

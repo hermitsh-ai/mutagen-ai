@@ -1,11 +1,12 @@
 {
   "name": "mutagen-ai",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Test-driven prompt evolution toolkit. Build test harnesses, diagnose failure patterns, and evolve AI prompts through targeted mutations.",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "mutagen": "dist/bin/cli.js"
+    "mutagen": "dist/bin/cli.js",
+    "mutagen-mcp": "dist/mcp/server.js"
   },
   "scripts": {
     "build": "tsc",
@@ -43,12 +44,15 @@
     "dist",
     "docs",
     "templates",
+    "skills",
     "PLAYBOOK.md",
     "README.md",
     "LICENSE"
   ],
   "dependencies": {
-    "yaml": "^2.4.0"
+    "yaml": "^2.4.0",
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

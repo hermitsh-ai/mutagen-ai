@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mutagen-ai": {
+      "command": "npx",
+      "args": ["-y", "mutagen-ai@latest", "--mcp"],
+      "env": {}
+    }
+  }
+}

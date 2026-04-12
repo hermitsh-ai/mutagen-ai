@@ -79,6 +79,8 @@ Run Options:
   --test <id>            Run a single test by ID
   --save-to <dir>        Save results to engagement directory
   --verbose              Show response text for failures
+  --quiet                Only show failing tests (suppress PASS lines)
+  --json                 Output structured JSON to stdout (no ANSI, no summary text)
   --table                Print results as markdown table
   --delay <ms>           Delay between tests in ms (default: 500)
   --retries <n>          Retries on transient API failures (default: 2)
@@ -290,11 +292,13 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
   tests: TestCase[];
   config: ProviderConfig;
   runs: number;
+  judgeConfig?: ProviderConfig;
 }> {
   let providerConfig: ProviderConfig | null = null;
   let promptFile: string | undefined;
   let testCasesFile: string | undefined;
   let runs: number = 1; // default
+  let judgeConfig: ProviderConfig | undefined;
 
   // Load from config file if provided
   if (flags["config"]) {
@@ -303,6 +307,7 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
     promptFile = cfg.promptFile;
     testCasesFile = cfg.testCasesFile;
     if (cfg.runs) runs = cfg.runs; // config file sets default
+    if (cfg.judgeProvider) judgeConfig = cfg.judgeProvider; // judge from config
   }
 
   // CLI flags override config file
@@ -311,6 +316,10 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
   if (flags["prompt"]) promptFile = flags["prompt"] as string;
   if (flags["yaml"]) testCasesFile = flags["yaml"] as string;
   if (flags["runs"]) runs = parseInt(flags["runs"] as string, 10); // CLI flag overrides config
+
+  // CLI judge flags override config file judge
+  const cliJudge = buildJudgeConfig(flags);
+  if (cliJudge) judgeConfig = cliJudge;
 
   // Validate
   if (!providerConfig) {
@@ -329,7 +338,7 @@ async function loadEverything(flags: Record<string, string | boolean>): Promise<
   const prompt = loadPrompt(promptFile);
   const tests = loadTestCasesFromYaml(testCasesFile);
 
-  return { prompt, tests, config: providerConfig, runs };
+  return { prompt, tests, config: providerConfig, runs, judgeConfig };
 }
 
 async function cmdRun(flags: Record<string, string | boolean>): Promise<void> {
@@ -361,42 +370,48 @@ async function cmdRun(flags: Record<string, string | boolean>): Promise<void> {
     return;
   }
 
-  const { prompt, tests, config, runs: configRuns } = await loadEverything(flags);
+  const { prompt, tests, config, runs: configRuns, judgeConfig } = await loadEverything(flags);
 
   console.error(`Prompt: ${(flags["prompt"] ?? flags["config"])} (${prompt.length} chars)`);
   console.error(`Provider: ${config.provider} / ${config.model}`);
   console.error(`Temperature: ${config.temperature ?? "default"}`);
+  if (judgeConfig) console.error(`Judge: ${judgeConfig.provider} / ${judgeConfig.model}`);
 
   const runs = configRuns;
   const tags = flags["tags"] ? (flags["tags"] as string).split(",") : undefined;
+
+  const isJson = flags["json"] === true;
+  const isQuiet = flags["quiet"] === true;
 
   const suite = await runTests(prompt, tests, config, {
     numRuns: runs,
     tags,
     testId: flags["test"] as string | undefined,
     verbose: flags["verbose"] === true,
+    quiet: isQuiet,
+    json: isJson,
     delayBetween: flags["delay"] ? parseInt(flags["delay"] as string, 10) : 500,
     retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
     apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
-    judgeConfig: buildJudgeConfig(flags),
+    judgeConfig,
   });
 
-  console.log(formatSummary(suite));
+  if (isJson) {
+    // Pure JSON output — machine-consumable, no ANSI, no summary text
+    console.log(JSON.stringify(suite, null, 2));
+  } else {
+    console.log(formatSummary(suite));
 
-  if (flags["table"]) {
-    console.log(formatMarkdownTable(suite));
+    if (flags["table"]) {
+      console.log(formatMarkdownTable(suite));
+    }
   }
 
   // Save results
   if (flags["save-to"]) {
     const dir = flags["save-to"] as string;
     const resultsPath = saveResults(suite, dir);
-    console.log(`Results saved: ${resultsPath}`);
-  }
-
-  // Output JSON to stdout for programmatic use
-  if (flags["json"]) {
-    console.log(JSON.stringify(suite, null, 2));
+    if (!isJson) console.log(`Results saved: ${resultsPath}`);
   }
 
   process.exit(suite.failed > 0 ? 1 : 0);
@@ -409,12 +424,17 @@ async function cmdBaseline(flags: Record<string, string | boolean>): Promise<voi
     process.exit(1);
   }
 
-  const { prompt, tests, config, runs: configRuns } = await loadEverything(flags);
+  const { prompt, tests, config, runs: configRuns, judgeConfig } = await loadEverything(flags);
+  const isJson = flags["json"] === true;
+  const isQuiet = flags["quiet"] === true;
 
   // Save the prompt version
   const promptPath = savePrompt(prompt, saveDir);
-  console.error(`Prompt saved: ${promptPath}`);
-  console.error(`Provider: ${config.provider} / ${config.model}`);
+  if (!isJson) {
+    console.error(`Prompt saved: ${promptPath}`);
+    console.error(`Provider: ${config.provider} / ${config.model}`);
+    if (judgeConfig) console.error(`Judge: ${judgeConfig.provider} / ${judgeConfig.model}`);
+  }
 
   const runs = configRuns;
   const tags = flags["tags"] ? (flags["tags"] as string).split(",") : undefined;
@@ -423,19 +443,24 @@ async function cmdBaseline(flags: Record<string, string | boolean>): Promise<voi
     numRuns: runs,
     tags,
     verbose: flags["verbose"] === true,
+    quiet: isQuiet,
+    json: isJson,
     retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
     apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
-    judgeConfig: buildJudgeConfig(flags),
+    judgeConfig,
   });
 
-  console.log(formatSummary(suite));
-
-  if (flags["table"]) {
-    console.log(formatMarkdownTable(suite));
-  }
-
   const resultsPath = saveResults(suite, saveDir);
-  console.log(`Baseline results saved: ${resultsPath}`);
+
+  if (isJson) {
+    console.log(JSON.stringify({ ...suite, promptVersion: promptPath, resultsFile: resultsPath }, null, 2));
+  } else {
+    console.log(formatSummary(suite));
+    if (flags["table"]) {
+      console.log(formatMarkdownTable(suite));
+    }
+    console.log(`Baseline results saved: ${resultsPath}`);
+  }
 
   process.exit(suite.failed > 0 ? 1 : 0);
 }
@@ -491,9 +516,20 @@ async function cmdCompare(flags: Record<string, string | boolean>): Promise<void
   const tests = loadTestCasesFromYaml(testCasesFile);
   const runs = flags["runs"] ? parseInt(flags["runs"] as string, 10) : 1;
 
+  // Resolve judge config: config file first, CLI flags override
+  let judgeConfig: ProviderConfig | undefined;
+  if (flags["config"]) {
+    const cfg = loadConfig(flags["config"] as string);
+    if (cfg.judgeProvider) judgeConfig = cfg.judgeProvider;
+  }
+  const cliJudge = buildJudgeConfig(flags);
+  if (cliJudge) judgeConfig = cliJudge;
+
   console.error(`\nComparing v${v1} vs v${v2}`);
   console.error(`v${v1}: ${prompt1.length} chars`);
-  console.error(`v${v2}: ${prompt2.length} chars\n`);
+  console.error(`v${v2}: ${prompt2.length} chars`);
+  if (judgeConfig) console.error(`Judge: ${judgeConfig.provider} / ${judgeConfig.model}`);
+  console.error();
 
   // Run both versions
   console.error(`${"=".repeat(60)}`);
@@ -503,7 +539,7 @@ async function cmdCompare(flags: Record<string, string | boolean>): Promise<void
     numRuns: runs,
     retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
     apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
-    judgeConfig: buildJudgeConfig(flags),
+    judgeConfig,
   });
 
   console.error(`\n${"=".repeat(60)}`);
@@ -513,7 +549,7 @@ async function cmdCompare(flags: Record<string, string | boolean>): Promise<void
     numRuns: runs,
     retries: flags["retries"] ? parseInt(flags["retries"] as string, 10) : 2,
     apiTimeoutMs: flags["timeout-ms"] ? parseInt(flags["timeout-ms"] as string, 10) : 45000,
-    judgeConfig: buildJudgeConfig(flags),
+    judgeConfig,
   });
 
   // Comparison table
@@ -574,6 +610,15 @@ function cmdVersions(flags: Record<string, string | boolean>): void {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  // Handle --mcp flag: launch MCP server
+  if (process.argv.includes("--mcp")) {
+    const { execFileSync } = await import("node:child_process");
+    const { resolve, join } = await import("node:path");
+    const mcpPath = resolve(join(__dirname, "..", "mcp", "server.js"));
+    execFileSync("node", [mcpPath], { stdio: "inherit" });
+    return;
+  }
+
   const { command, flags } = parseArgs(process.argv);
 
   switch (command) {
