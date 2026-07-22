@@ -1,0 +1,8 @@
+test_cases:
+  - id: semantic_advisory_tone
+    description: "Semantic judge verifies advisory-default intent is present"
+    input: "Summarize ASMO operating mode in one sentence."
+    checks:
+      - type: semantic_judge
+        criteria: "The response should clearly state ASMO is advisory by default and does not execute actions unless explicitly enabled."
+        pass_threshold: 0.7

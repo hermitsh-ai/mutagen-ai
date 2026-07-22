@@ -1,0 +1,13 @@
+# Mutagen-AI Configuration
+# Run tests: mutagen run --config mutagen.yaml
+
+provider: gemini
+model: gemini-2.5-flash
+api_key_env: GEMINI_API_KEY
+temperature: 0.7
+max_tokens: 4096
+
+# Paths (relative to this file)
+prompt_file: prompt.txt
+test_cases: tests.yaml
+runs: 1
